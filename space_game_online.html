@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Orbit Snack Online</title>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyDRHzb2MG8OfPKYQkWOCts8QpyrVdnbSOk",
+  authDomain: "space-game-d0d65.firebaseapp.com",
+  databaseURL: "https://space-game-d0d65-default-rtdb.firebaseio.com",
+  projectId: "space-game-d0d65",
+  storageBucket: "space-game-d0d65.firebasestorage.app",
+  messagingSenderId: "942243026435",
+  appId: "1:942243026435:web:8851a27c1ba21f07382036"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database().ref("scores");
+</script>
+
+<style>
+body {
+  margin: 0;
+  background: black;
+  color: white;
+  font-family: monospace;
+  text-align: center;
+}
+
+#game-container {
+  display: inline-block;
+  position: relative;
+}
+
+canvas {
+  background: radial-gradient(circle at center, #111, #000);
+  display: block;
+  margin: 0 auto;
+  border: 4px solid #00ffff;
+  box-shadow: 0 0 20px #00ffff;
+}
+
+#leaderboard {
+  max-height: 300px;
+  width: 250px;
+  margin: 20px auto;
+  padding: 10px;
+  border: 4px solid #00ffff;
+  box-shadow: 0 0 20px #00ffff;
+  overflow-y: auto;
+  text-align: left;
+  background: #111;
+}
+#leaderboard ol {
+  padding-left: 20px;
+  margin: 0;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Aura snack</h2>
+
+<div id="game-container">
+  <canvas id="game" width="600" height="400"></canvas>
+</div>
+
+<p id="info"></p>
+
+<h3>🏆 Leaderboard</h3>
+<div id="leaderboard">
+  <ol id="scores"></ol>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let player = { x: 300, y: 200, size: 15, speed: 3 };
+let keys = {};
+let stars = [];
+let comets = [];
+let score = 0;
+let gameOver = false;
+
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+// Spawn star with smaller size
+function spawnStar() {
+  stars.push({
+    x: Math.random()*canvas.width,
+    y: Math.random()*canvas.height,
+    size: 4 + Math.random()*4
+  });
+}
+
+// Spawn comet dynamically; faster as score increases
+function spawnComet() {
+  let speedMultiplier = 1 + score/10;
+  comets.push({
+    x: Math.random()*canvas.width,
+    y: Math.random()*canvas.height,
+    size: 12,
+    vx: (Math.random()-0.5)*3*speedMultiplier,
+    vy: (Math.random()-0.5)*3*speedMultiplier
+  });
+}
+
+// Keep player inside canvas
+function keepPlayerInBounds() {
+  if(player.x < player.size) player.x = player.size;
+  if(player.x > canvas.width - player.size) player.x = canvas.width - player.size;
+  if(player.y < player.size) player.y = player.size;
+  if(player.y > canvas.height - player.size) player.y = canvas.height - player.size;
+}
+
+// Initial stars and comets
+for(let i=0;i<5;i++) spawnStar();
+for(let i=0;i<2;i++) spawnComet();
+
+// Submit score — each player gets a unique entry
+function submitScore() {
+  let name = prompt("Enter your name:");
+  if(!name) return;
+
+  db.push({
+    name: name,
+    score: score,
+    time: Date.now()
+  });
+}
+
+// Load all scores from Firebase
+function loadScores() {
+  db.on("value", snap => {
+    let list = document.getElementById("scores");
+    list.innerHTML = "";
+
+    let data = [];
+    snap.forEach(child => {
+      data.push(child.val());
+    });
+
+    data.sort((a,b)=>b.score - a.score); // highest first
+
+    data.forEach(s => {
+      let li = document.createElement("li");
+      li.textContent = s.name + " — " + s.score;
+      list.appendChild(li);
+    });
+  });
+}
+
+loadScores();
+
+// Game update
+function update() {
+  if(gameOver) return;
+
+  if(keys["arrowup"]||keys["w"]) player.y -= player.speed;
+  if(keys["arrowdown"]||keys["s"]) player.y += player.speed;
+  if(keys["arrowleft"]||keys["a"]) player.x -= player.speed;
+  if(keys["arrowright"]||keys["d"]) player.x += player.speed;
+
+  keepPlayerInBounds();
+
+  stars.forEach((star,i)=>{
+    if(Math.hypot(player.x-star.x, player.y-star.y) < 20){
+      stars.splice(i,1);
+      score++;
+      spawnStar();
+
+      if(score % 5 === 0) spawnComet();
+    }
+  });
+
+  comets.forEach(c=>{
+    c.x += c.vx; c.y += c.vy;
+
+    // bounce off walls
+    if(c.x < c.size || c.x > canvas.width - c.size) c.vx*=-1;
+    if(c.y < c.size || c.y > canvas.height - c.size) c.vy*=-1;
+
+    if(Math.hypot(player.x-c.x, player.y-c.y) < 25){
+      gameOver = true;
+      submitScore();
+    }
+  });
+}
+
+// Draw everything
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // Player
+  ctx.fillStyle = "cyan";
+  ctx.fillRect(player.x-8, player.y-8, 16, 16);
+
+  // Stars
+  ctx.fillStyle = "yellow";
+  stars.forEach(s=>{
+    ctx.beginPath();
+    ctx.arc(s.x,s.y,s.size,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  // Comets
+  ctx.fillStyle = "red";
+  comets.forEach(c=>{
+    ctx.beginPath();
+    ctx.arc(c.x,c.y,c.size,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  document.getElementById("info").textContent =
+    gameOver ? "💀 Game Over! Refresh to restart." : "Score: " + score;
+}
+
+// Main loop
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+
+</body>
+</html>
